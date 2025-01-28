@@ -1,0 +1,105 @@
+const token = "///";
+var telegramUrl = "https://api.telegram.org/bot" + token;
+var webAppUrl = ScriptApp.getService().getUrl();
+let chatId="///";
+
+function onEditTelegramm(e) 
+{
+  sendTelegram(e)
+}
+
+function sendTelegram(e)
+{
+  var url="///"
+  var sheet = SpreadsheetApp.openByUrl(url).getSheetByName("///")
+  var lastRow = sheet.getLastRow()-2;
+
+   var textA = sheet.getRange("A" + lastRow).getValue();
+  var textB = sheet.getRange("B" + lastRow).getValue();
+  var textC = sheet.getRange("C" + lastRow).getValue();
+  var textD = sheet.getRange("D" + lastRow).getValue();
+  var textE = sheet.getRange("E" + lastRow).getValue();
+  var textF = sheet.getRange("F" + lastRow).getValue();
+  var textG = sheet.getRange("J" + lastRow).getValue();
+   var textL = sheet.getRange("L" + lastRow).getValue();
+
+  var formattedDateTime = formatDateTime(textA);
+  var formattedDate1 = formatDateTime(textG).substring(0, 16);
+  var formattedDate2=formatDateTime(textL).substring(19, 24);
+  var formattedDate=` ${formattedDate1} ${formattedDate2}`;
+
+  var text = "Новая заявка создана"+"\n"+
+    formattedDateTime + "\n" +
+    textB + "\n" +
+    textC + "\n" +
+    textD + "\n" +
+    textE + "\n" +
+    textF + "\n" +
+    "Прибытие "+formattedDate;
+
+  sendText(chatId, text);
+}
+
+function sendText(chatId, text, keyBoard) {
+  let data = {
+    method: 'post',
+    payload: {
+      method: 'sendMessage',
+      chat_id: String(chatId),
+      text: text,
+      parse_mode: 'HTML',
+      reply_markup: JSON.stringify(keyBoard)
+    }
+  }
+
+  Logger.log(text);
+  UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/', data);
+}
+
+function notifyTelegramm(data, status) {
+  try {
+    const applicationNumber = data[0] || "Не указан";
+    const deliveryDate = formatDateTime(data[1]) || "Не указана дата";
+    const transportNumber = data[9] ? data[9].toString().trim() : "Не указан";
+
+    const message = ` Заявка: ${applicationNumber} ${status || "Требует внимания уточнить"}\n Прибытие: ${deliveryDate}\n Номер автомобиля: ${transportNumber}`;
+
+    sendText(chatId, message);
+
+    Logger.log(`Сообщение успешно отправлено: ${message}`);
+  } catch (error) {
+    Logger.log(`Ошибка в методе notifyTelegramm: ${error.message}`);
+  }
+}
+
+
+
+function formatDateTime(dateTimeString) 
+{
+  var dateTimeString = dateTimeString.toString();
+  var datePart = dateTimeString.substring(0, 15);
+  var timePart = dateTimeString.substring(16, 21);
+  var date = new Date(datePart);
+  var formattedDate = Utilities.formatDate(date, 'GMT+3', 'dd');
+  var month = date.getMonth();
+  var year = date.getFullYear();
+
+  var months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+  return formattedDate + ' ' + months[month] + ' ' + year + ' г. ' + timePart;
+}
+
+
+function safeGetRangeValue(sheet, range) 
+{
+    try {
+        const value = sheet.getRange(range).getValue();
+        return value ? value.toString().trim() : "Не указано";
+    } catch (error) {
+        return "Ошибка чтения";
+    }
+}
+
+function logError(message, error) {
+    Logger.log(`${message}: ${error.message}`);
+    SpreadsheetApp.getActiveSpreadsheet().getSheetByName("System Log").appendRow([new Date(), message, error.message]);
+}
