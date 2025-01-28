@@ -1,0 +1,1029 @@
+const URL_TABLE = "///";
+const DOCK = "///";
+const DOCK2 = "///";
+const AnswerForm = "Form Responses 1";
+const ControlMenu = "Menu";
+const DataBase = "Database";
+const ControlPanel = "ControlPanel";
+const START_INDEX_TABLE = 6;
+var managerEmail;
+var table = SpreadsheetApp.openByUrl(URL_TABLE);
+const sheet = table.getSheetByName(AnswerForm);
+const sheetControlMenu = table.getSheetByName(ControlMenu);
+const sheetDataBase = table.getSheetByName(DataBase);
+const sheetControlPanel = table.getSheetByName(ControlPanel);
+const ActionSheet = "Action";
+const headersMenuPanel = ['Заявка ID', 'Дата прибытия', 'Посетитель', 'Причина', 'Email', 'Комментарий', 'Тип пропуска', 'Вариант пропуска', 'Марка', 'Номер', 'Тип транспорта', 'Дата подачи заявки', 'Действие', 'Статус заявки', 'Ответственный'];
+const SeсurityEmailAddress = sheetControlPanel.getRange("B" + 1).getValue();
+const TimerTime = sheetControlPanel.getRange("B" + 3).getValue();
+const headers = ['Заявка ID', 'Дата прибытия', 'Цель визита', 'ФИО', 'Почта', 'Комментарий', 'Тип пропуска', 'Вариант пропуска', 'Марка', 'Номер авто', 'Тип транспорта', 'Статус заявки', 'Ответственный'];
+const newDocumentNameText = 'Заявка номер:'
+var visitorsVariant = {
+	auto: [],
+	pedestrian: []
+};
+var visitors;
+var canProcessVisitor = false;
+var lastIndexTable = START_INDEX_TABLE;
+var newDocumentName;
+var uniqueId;
+var isTriggerActive;
+var _isDeleteOrderInProcess;
+
+function onEdit(e)
+{
+  logToSheet("System Log", `Изменение состояния таблицы.`);
+
+	managerEmail = Session.getActiveUser().getEmail();
+	//showCustomAlert
+	processFormSubmission(e);
+	setCheckExpiredApplicationsTrigger();
+}
+
+function processFormSubmission(e)
+{
+	const lastRow = sheet.getLastRow();
+
+	const data = {
+		dateInfo: sheet.getRange("A" + lastRow).getValue(),
+		passVariant: sheet.getRange("B" + lastRow).getValue(),
+		transportType: sheet.getRange("C" + lastRow).getValue(),
+		carBrand: sheet.getRange("D" + lastRow).getValue(),
+		transportNumber: sheet.getRange("E" + lastRow).getValue(),
+		personalData: sheet.getRange("F" + lastRow).getValue(),
+		reason: sheet.getRange("G" + lastRow).getValue(),
+		mail: sheet.getRange("H" + lastRow).getValue(),
+		contactNumber: sheet.getRange("I" + lastRow).getValue(),
+		dateVisit: sheet.getRange("J" + lastRow).getValue(),
+		comments: sheet.getRange("K" + lastRow).getValue()
+	};
+
+	if (!validateVisitDate(data, data.mail))
+	{
+		return;
+	}
+  
+	checkAndSetHeaders(sheetDataBase);
+	checkDate(sheetControlMenu);
+	checkRow(sheetControlMenu);
+	fillTable(sheetControlMenu, data);
+	insertCheckbox(sheetControlMenu);
+	highlightNewApplication(lastIndexTable);
+	showCustomAlert
+}
+
+function validateVisitDate(data, email)
+{
+  var dateVisit=data.dateVisit;
+	const today = new Date();
+	const minDate = new Date(today);
+	minDate.setDate(today.getDate() - 1);
+
+	if (dateVisit < minDate)
+	{
+		const subject = 'Некорректная дата визита';
+		const body = `Уважаемый пользователь, дата визита ${dateVisit.toLocaleDateString()} указана некорректно. Дата визита должна быть не ранее ${minDate.toLocaleDateString()}.`;
+    logToSheet("System Log", `Неуспешная проверка даты посещения.дата визита ${dateVisit.toLocaleDateString()} указана некорректно. Дата визита должна быть не ранее ${minDate.toLocaleDateString()}`);
+
+   if (!isValidEmail(data.mail))
+			{
+				Logger.log('Недействительный адрес эл. почты: ' + data.mail);
+			}
+      else
+      {
+        MailApp.sendEmail
+        ({
+			    to: email,
+			    subject: subject,
+			    body: body
+		    });
+      }
+		
+		return false;
+	}
+
+  logToSheet("System Log", `Успешная проверка даты посещения.`);
+	return true;
+}
+
+function checkAndSetHeaders(t)
+{
+	const firstRow = t.getRange(1, 1, 1, headersMenuPanel.length).getValues()[0];
+	const isEmpty = firstRow.every(cell => cell === '');
+	
+  if (isEmpty)
+	{
+		t.getRange(1, 1, 1, headersMenuPanel.length).setValues([headersMenuPanel]);
+	}
+}
+
+function checkDate(sheet)
+{
+	const today = new Date();
+	const yesterday = new Date(today);
+	yesterday.setDate(yesterday.getDate() - 2);
+
+	for (let index = START_INDEX_TABLE; index <= 99999; index++)
+	{
+		const cell = sheet.getRange("B" + index).getValue();
+		const dateInfo = new Date(sheet.getRange("B" + index).getValue());
+		if (cell === "")
+		{
+			lastIndexTable = index;
+			break;
+		}
+		if (dateInfo < yesterday)
+		{
+			sheet.getRange("A" + index + ":N" + index).clearContent();
+		}
+	}
+}
+
+function checkRow(sheet)
+{
+	for (let index = START_INDEX_TABLE; index <= 99999; index++)
+	{
+		const cell = sheet.getRange("B" + index).getValue();
+		if (cell === "")
+		{
+			lastIndexTable = index;
+			break;
+		}
+	}
+}
+
+function fillTable(sheet, data)
+{
+
+	const
+	{
+		dateVisit,
+		reason,
+		personalData,
+		mail,
+		comments,
+		passVariant,
+		carBrand,
+		transportNumber,
+		transportType
+	} = data;
+
+	const dateVisitTable = sheet.getRange("B" + lastIndexTable);
+	const reasonVisitTable = sheet.getRange("C" + lastIndexTable);
+	const personalDataTable = sheet.getRange("D" + lastIndexTable);
+	const mailTable = sheet.getRange("E" + lastIndexTable);
+	const commentsTable = sheet.getRange("F" + lastIndexTable);
+	const passTypeTable = sheet.getRange("G" + lastIndexTable);
+	const passVariantTable = sheet.getRange("H" + lastIndexTable);
+	const carBrandTable = sheet.getRange("I" + lastIndexTable);
+	const transportNumberTable = sheet.getRange("J" + lastIndexTable);
+	const transportTypeTable = sheet.getRange("K" + lastIndexTable);
+  const status = sheetControlMenu.getRange('N' + lastIndexTable);
+  logToSheet("Management Log", `Посетитель ${personalData} составил заявку на пропуск.`);
+
+	dateVisitTable.setValue(dateVisit);
+	reasonVisitTable.setValue(reason);
+	personalDataTable.setValue(personalData);
+	mailTable.setValue(mail);
+	commentsTable.setValue(comments);
+	passVariantTable.setValue(passVariant);
+	carBrandTable.setValue(carBrand);
+	sheet.getRange("L" + lastIndexTable).setValue(data.dateInfo);
+	passTypeTable.setValue("Разовый");
+
+	if (passVariant == "Авто")
+	{
+		transportNumberTable.setValue(transportNumber);
+		transportTypeTable.setValue(transportType);
+	}
+
+  status.setValue('Новая');
+
+  logToSheet("System Log", `Ended function fillTable(sheet, data)`);
+}
+
+function insertCheckbox(sheet)
+{
+	const activeRange = sheet.getRange("M" + lastIndexTable);
+	const checkbox = SpreadsheetApp.newDataValidation().requireCheckbox().setAllowInvalid(false).build();
+	activeRange.setDataValidation(checkbox).setValue(false);
+
+  logToSheet("System Log", `Ended insertCheckbox(sheet)`);
+}
+
+
+function doGet(e) 
+{
+  start();  
+    logToSheet("System Log", ` callWebApp()`);
+   return ContentService.createTextOutput("Скрипт выполнен от имени владельца");
+}
+
+function callWebApp() {
+  const url = '///';  
+  const options = {
+    method: 'get',
+    muteHttpExceptions: true
+  };
+  const response = UrlFetchApp.fetch(url, options);
+   logToSheet("System Log", response);
+}
+
+function start()
+{
+  logToSheet("System Log", ` callWebApp()`);
+
+	var isCheckBoxSeted = false;
+
+	if (!_isDeleteOrderInProcess)
+	{
+		visitorsVariant = checkAndSeparateVisitors();
+		var count = 1;
+		if (visitorsVariant.auto.length > 0 && visitorsVariant.pedestrian.length > 0)
+		{
+			count = 2;
+		}
+		for (let i = 0; i < count; i++)
+		{
+			uniqueId = generateUniqueId();
+			const visitors = processVisitors();
+      
+			if (visitors.length > 0)
+			{
+				const document = createDocumentFromTemplateWithVisitors(visitors, uniqueId);
+				sendEmail(visitors, document);
+				logSentApplication(visitors, uniqueId);
+				createTimerTriggerIfNotExists();
+			}
+			if (count == 2 && isCheckBoxSeted == false)
+			{
+				toggleCheckboxes(visitorsVariant, true)
+				isCheckBoxSeted = true;
+			}
+		}
+	}
+
+   logToSheet("System Log", `Завершение обработки заявок.`);
+}
+
+function checkAndSeparateVisitors()
+{
+	const dataRange = sheetControlMenu.getDataRange();
+	const data = dataRange.getValues();
+
+	for (let i = START_INDEX_TABLE - 1; i < data.length; i++)
+	{
+		const checkboxStatus = data[i][12]; 
+
+		if (checkboxStatus == true)
+		{
+			const passVariant = data[i][7]; 
+
+			if (passVariant === "Пеший")
+			{
+				visitorsVariant.pedestrian.push(i + 1); 
+			}
+			else
+			{
+				visitorsVariant.auto.push(i + 1);
+			}
+		}
+	}
+
+	if (visitorsVariant.auto.length && visitorsVariant.pedestrian.length)
+	{
+		toggleCheckboxes(visitorsVariant, false)
+	}
+
+  logToSheet("System Log", `Завершение функции checkAndSeparateVisitors()`);
+	return visitorsVariant;
+}
+
+function toggleCheckboxes(visitorsVariant, isActive)
+{
+	visitorsVariant.pedestrian.forEach(row =>
+	{
+		sheetControlMenu.getRange("M" + row).setValue(isActive);
+	});
+}
+
+function processVisitors()
+{
+	visitors = createVisitorsArray();
+
+	if (visitors.length > 0)
+	{
+		canProcessVisitor = true;
+		return visitors;
+	}
+	else
+	{
+		canProcessVisitor = false;
+	}
+}
+
+function generateUniqueId()
+{
+	const lastRow = sheetDataBase.getLastRow();
+
+	if (lastRow < 2)
+	{
+		return 1;
+	}
+
+	const lastApplicationNumber = sheetDataBase.getRange(lastRow, 1).getValue();
+	return lastApplicationNumber + 1;
+}
+
+function getDayMonthYear() {
+  const today = new Date();
+  const day = String(today.getDate()).padStart(2, '0'); 
+  const month = String(today.getMonth() + 1).padStart(2, '0'); 
+  const year = today.getFullYear(); 
+  return `${day}.${month}.${year}`; 
+}
+
+function createDocumentFromTemplateWithVisitors(visitors, uniqueId)
+{
+
+  logToSheet("System Log", ` Начало создания шаблона на отправку`);
+
+	newDocumentName = newDocumentNameText + uniqueId;
+	const templateFile = visitors[0].passVariant == "Пеший" ? DriveApp.getFileById(DOCK2) : DriveApp.getFileById(DOCK);
+	const newFile = templateFile.makeCopy(newDocumentName);
+	const newFileId = newFile.getId();
+	const newDoc = DocumentApp.openById(newFileId);
+	const body = newDoc.getBody(); 
+
+
+	if (visitors[0].passVariant == "Пеший")
+	{
+		const table = body.appendTable([
+			['№', 'ФИО', 'Тип пропуска', 'Дата посещения/Период заявки', 'Примечание']
+		]);
+		visitors.forEach((visitor, index) =>
+		{
+			const row = table.appendTableRow();
+			row.appendTableCell((index + 1).toString());
+			row.appendTableCell(visitor.name ? visitor.name.toString() : " ");
+			row.appendTableCell(visitor.passType ? visitor.passType.toString() : " ");
+			row.appendTableCell(visitor.date ? Utilities.formatDate(new Date(visitor.date), 'GMT+3', 'dd.MM.yyyy') : " ");
+			row.appendTableCell(visitor.comment ? visitor.comment.toString() : " ");
+		});
+	}
+	else
+	{
+		const table = body.appendTable([
+			['№', 'Марка', 'Номер', 'Тип (легковой/грузовой)', 'Тип пропуска(разовый/постоянный/на период)', 'Дата прибытия/Период заявки', 'Примечание']
+		]);
+		visitors.forEach((visitor, index) =>
+		{
+			const row = table.appendTableRow();
+			row.appendTableCell((index + 1).toString());
+			row.appendTableCell(visitor.carBrand ? visitor.carBrand.toString() : " ");
+			row.appendTableCell(visitor.transportNumber ? visitor.transportNumber.toString() : " ");
+			row.appendTableCell(visitor.transportType ? visitor.transportType.toString() : " ");
+			row.appendTableCell(visitor.passType ? visitor.passType.toString() : " ");
+			row.appendTableCell(visitor.date ? Utilities.formatDate(new Date(visitor.date), 'GMT+3', 'dd.MM.yyyy') : " ");
+			row.appendTableCell(visitor.comment ? visitor.comment.toString() : " ");
+		});
+	}
+
+	newDoc.saveAndClose();
+
+  logToSheet("System Log", ` Завершение создания шаблона на отправку`);
+	return newFile;
+}
+
+function exportAsHTML(docID)
+{
+	const url = "https://docs.google.com/feeds/download/documents/export/Export?id=" + docID + "&exportFormat=html";
+	const param = {
+		method: "get",
+		headers:
+		{
+			"Authorization": "Bearer " + ScriptApp.getOAuthToken()
+		},
+		muteHttpExceptions: true,
+	};
+	const html = UrlFetchApp.fetch(url, param).getContentText();
+	return html;
+}
+
+function sendEmail(visitors, newFile)
+{
+	const htmlContent = exportAsHTML(newFile.getId());
+
+	try
+	{
+		MailApp.sendEmail(
+		{
+			to: SeсurityEmailAddress,
+			subject: newDocumentName,
+			htmlBody: htmlContent,
+			body: 'См. HTML-содержимое в теле письма.'
+		});
+	}
+	catch (e)
+	{
+		Logger.log('Ошибка при отправке письма: ' + e.message);
+		return;
+	}
+    userTemp = Session.getActiveUser().getEmail();
+   logToSheet("Management Log", `Заявка номер ${newDocumentName} отправлена на подтверждение ответственным  ${userTemp}`);
+
+	DriveApp.getFileById(newFile.getId()).setTrashed(true);
+
+	visitors.forEach(visitor =>
+	{
+		const rowIndex = visitor.row;
+		const range = sheetControlMenu.getRange('M' + rowIndex);
+		const rangeUniqueId = sheetControlMenu.getRange("A" + rowIndex);
+		rangeUniqueId.setValue(visitor.unique)
+		managerEmail = Session.getActiveUser().getEmail();
+		sheetControlMenu.getRange("O" + rowIndex).setValue(managerEmail);
+		range.clearContent();
+		range.clearDataValidations();
+		sheetControlMenu.getRange('N' + rowIndex).setValue('на рассмотрении');
+		highlightPendingApplication(rowIndex);
+	});
+}
+
+function logSentApplication(visitors, uniqueId)
+{
+	const lastRow = sheetDataBase.getLastRow();
+	const startRow = lastRow + 1;
+
+	if (lastRow == 0)
+	{
+		sheetDataBase.getRange(1, 1, 1, headers.length).setValues([headers]);
+	}
+
+	const data = visitors.map(visitor => [
+		uniqueId,
+		visitor.date,
+		visitor.reason,
+		visitor.name,
+		visitor.email,
+		visitor.comment,
+		visitor.passType,
+		visitor.passVariant,
+		visitor.carBrand,
+		visitor.transportNumber,
+		visitor.transportType, 'на рассмотрении',
+		visitor.userEmail
+	]);
+
+	sheetDataBase.getRange(startRow, 1, data.length, headers.length).setValues(data);
+}
+
+function checkEmails()
+{
+	const threads = GmailApp.getInboxThreads(0, 10);
+	const result = 'заявка принята';
+	const badResult = 'не принята';
+  const badResult2 = 'отклонена';
+	logToSheet("System Log", `Начало проверки писем.`);
+
+	for (const thread of threads)
+	{
+		logToSheet("System Log", `Обработка цепочки сообщений.`);
+		const messages = thread.getMessages();
+		for (const message of messages)
+		{
+			const subject = message.getSubject();
+			const htmlBody = message.getBody();
+			const plainBody = message.getPlainBody();
+			const body = plainBody || htmlBody.replace(/<[^>]*>?/gm, '').trim();
+			//logToSheet("System Log", `Тема письма: ${subject}`);
+			//logToSheet("System Log", `HTML тело письма: ${htmlBody}`);
+
+			if (subject && body)
+			{
+				logToSheet("System Log", `Проверка текста на наличие ключевых слов (plainBody).`);
+				if (body.toLowerCase().includes(result.toLowerCase()) || body.toLowerCase().includes(badResult.toLowerCase())|| body.toLowerCase().includes(badResult2.toLowerCase()))
+				{
+					const applicationNumber = extractApplicationNumber(subject);
+					if (applicationNumber)
+					{
+						const applicationStatus = getApplicationStatus(applicationNumber);
+						
+						if (applicationStatus && applicationStatus.toLowerCase() == 'на рассмотрении')
+						{
+						logToSheet("System Log", `Номер заявки: ${applicationNumber}`);
+						logToSheet("System Log", `Статус заявки в базе данных: ${applicationStatus}`);
+
+            var status;
+
+            if(body.toLowerCase().includes(badResult2.toLowerCase())|| body.toLowerCase().includes(badResult.toLowerCase()))
+            {
+              status='Отклонено';
+            }
+            if (body.toLowerCase().includes(result.toLowerCase()) )
+            {
+              status='Подтверждено';
+            }
+							updateDatabaseStatus(applicationNumber, status);
+							logToSheet("System Log", `Статус заявки обновлён в базе данных.`);
+							updateControlMenuStatus(applicationNumber, status);
+							logToSheet("System Log", `Статус заявки обновлён в контрольном меню.`);
+							notifyVisitors(applicationNumber, status);
+							logToSheet("System Log", `Отправлено уведомление посетителю.`);
+							logToSheet("Management Log", `Заявка номер ${applicationNumber} была ${status.toLowerCase()}.`);
+						}
+					}
+				}
+				else
+				{
+					logToSheet("System Log", `Ключевые слова не найдены ни в plainBody, ни в HTML теле.`);
+				}
+			}
+			message.markRead();
+			logToSheet("System Log", `Письмо помечено как прочитанное.`);
+		}
+	}
+	logToSheet("System Log", `Проверка ожидающих заявок.`);
+	checkPendingApplications();
+	logToSheet("System Log", `Завершение функции checkEmails().`);
+}
+
+function logToSheet(sheetName, message)
+{
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName) || SpreadsheetApp.getActiveSpreadsheet().insertSheet(sheetName);
+	const timestamp = new Date();
+	sheet.appendRow([timestamp, message]);
+
+}
+
+function getApplicationStatus(applicationNumber)
+{
+	const dataRange = sheetDataBase.getDataRange();
+	const data = dataRange.getValues();
+
+	for (let i = 1; i < data.length; i++)
+	{
+		if (data[i][0] == applicationNumber)
+		{
+			return data[i][headers.length - 2];
+		}
+	}
+  
+	return null;
+}
+
+function extractApplicationNumber(subject)
+{
+	if (!subject) return null; 
+	const match = subject.match(new RegExp(newDocumentNameText + "(\\d+)"));
+	return match ? match[1] : null;
+}
+
+function notifyVisitors(applicationNumber, result)
+{
+	const dataRange = sheetDataBase.getDataRange();
+	const data = dataRange.getValues();
+	for (let i = 0; i < data.length; i++)
+	{
+		if (data[i][0] == applicationNumber)
+		{
+			const visitorEmail = data[i][4];
+			if (!isValidEmail(visitorEmail))
+			{
+				Logger.log('Недействительный адрес эл. почты: ' + visitorEmail);
+				return;
+			}
+			else
+			{
+				notifyVisitor(visitorEmail, result);
+			}
+		}
+	}
+}
+
+function notifyVisitor(visitorEmail, result)
+{
+	const subject = 'Статус вашей заявки на пропуск ';
+	let body;
+	if (result == 'Подтверждено')
+	{
+		body = 'Ваша заявка подтверждена' + '.\n';
+		body += 'Пропуск заказан.';
+	}
+	else
+	{
+		body = 'Ваша заявка отклонена' + '.\n';
+		body += 'Пропуск не заказан.';
+	}
+
+	MailApp.sendEmail(
+	{
+		to: visitorEmail,
+		subject: subject,
+		body: body
+	});
+}
+
+function updateDatabaseStatus(applicationNumber, status)
+{
+	const dataRange = sheetDataBase.getDataRange();
+	const data = dataRange.getValues();
+
+	for (let i = 1; i < data.length; i++)
+	{
+		var number = data[i][0]
+		if (number == applicationNumber)
+		{
+			sheetDataBase.getRange(i + 1, headers.length - 1).setValue(status);
+
+if(status==='Отклонено')
+{
+  status='Отклонена';
+}
+if(status==='Подтверждено')
+{
+  status='Подтверждена';
+}
+       notifyTelegramm(data[i], status);
+		}
+	}
+
+  logToSheet("Management Log", `Статус заявки номер ${applicationNumber} обновлен на "${status}" в базе данных.`);
+}
+
+function createVisitorsArray()
+{
+	const visitors = [];
+	const dataRange = sheetControlMenu.getDataRange();
+	const data = dataRange.getValues();
+
+	for (let i = START_INDEX_TABLE - 1; i < data.length; i++)
+	{
+		const checkboxStatus = data[i][12]; 
+		if (checkboxStatus == true)
+		{
+			const visitor = {
+				unique: uniqueId,
+				row: i + 1,
+				date: data[i][1], 
+				reason: data[i][2], 
+				name: data[i][3], 
+				email: data[i][4], 
+				comment: data[i][5], 
+				passType: data[i][6], 
+				passVariant: data[i][7], 
+				carBrand: data[i][8], 
+				transportNumber: data[i][9], 
+				transportType: data[i][10], 
+				managerEmail: Session.getActiveUser().getEmail()
+			};
+			visitors.push(visitor);
+		}
+	}
+
+	return visitors;
+}
+
+function assignApplicationId(applicationNumber)
+{
+	const dataRange = sheetControlMenu.getDataRange();
+	const data = dataRange.getValues();
+
+	if (!visitors || visitors.length == 0)
+	{
+		visitors = createVisitorsArray();
+	}
+	for (let i = 0; i < data.length; i++)
+	{
+		const row = i + 1;
+		const checkboxStatus = sheetControlMenu.getRange("M" + row).getValue();
+		if (checkboxStatus == true)
+		{
+			const visitorEmail = data[i][4];
+      			const visitorName = data[i][3]; 
+			const visitorDate = data[i][1];
+			let found = false;
+			for (let j = 0; j < visitors.length; j++)
+			{
+				var visitorsEmail = visitors[j].email;
+				var visitorsName = visitors[j].name;
+				var visitorsDate = visitors[j].date;
+				if (visitorEmail == visitorsEmail || visitorName == visitorsName || visitorDate == visitorsDate)
+				{
+					sheetControlMenu.getRange("A" + row).setValue(applicationNumber);
+					managerEmail = Session.getActiveUser().getEmail();
+					sheetControlMenu.getRange("O" + row).setValue(managerEmail);
+					found = true;
+					break; 
+        }
+			}
+			if (!found)
+			{
+				Logger.log('Visitor not found in visitors array: ' + visitorEmail + ', ' + visitorName);
+			}
+		}
+	}
+}
+
+function createTimerTriggerIfNotExists()
+{
+   logToSheet("System Log", `Начало функции createTimerTriggerIfNotExists()`);
+	const triggers = ScriptApp.getProjectTriggers();
+	const triggerExists = triggers.some(trigger => trigger.getHandlerFunction() == 'checkEmails');
+	 if (!triggerExists) 
+	 {
+	   ScriptApp.newTrigger('checkEmails')
+	     .timeBased()
+	     .everyMinutes(5) 
+	     .create();
+	     isTriggerActive=true;
+	 }
+
+   logToSheet("System Log", `Завершение функции createTimerTriggerIfNotExists().`);
+}
+
+function isValidEmail(email)
+{
+	const emailPattern = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/;
+
+  logToSheet("System Log", `Завершение функции isValidEmail().`);
+	return emailPattern.test(email);
+}
+
+function showRequestSubmittedMessage()
+{
+	var ui = SpreadsheetApp.getUi(); 
+	var response = ui.alert('Статус заявки', 'Заявка отправлена', ui.ButtonSet.OK);
+
+	if (response == ui.Button.OK)
+	{
+		Logger.log('Заявка отправлена');
+	}
+}
+
+function showRequestConfirmedMessage()
+{
+	try
+	{
+		var ui = SpreadsheetApp.getUi(); 
+		var response = ui.alert('Статус заявки', 'Заявка подтверждена', ui.ButtonSet.OK);
+
+		if (response == ui.Button.OK)
+		{
+			Logger.log('Заявка подтверждена');
+		}
+	}
+	catch (e)
+	{
+		Logger.log('Ошибка при отображении сообщения: ' + e.message);
+	}
+}
+
+function checkPendingApplications()
+{
+
+  logToSheet("System Log", `Проверка и обновление статусов ожидающих заявок.`);
+
+	const dataRange = sheetControlMenu.getDataRange();
+	const data = dataRange.getValues();
+
+	for (let i = START_INDEX_TABLE - 1; i < data.length; i++)
+	{
+		const status = data[i][headersMenuPanel.length - 2]; 
+		if (status === 'на рассмотрении')
+		{
+			return true;
+		}
+	}
+
+	deleteAllTriggers();
+	return false;
+}
+
+function deleteAllTriggers()
+{
+	const triggers = ScriptApp.getProjectTriggers();
+
+	for (const trigger of triggers)
+	{
+		if (trigger.getHandlerFunction() == 'checkEmails')
+		{
+			ScriptApp.deleteTrigger(trigger);
+		}
+	}
+
+  logToSheet("System Log", `Завершение функции deleteAllTriggers().`);
+}
+
+function showCustomAlert()
+{
+	var ui = SpreadsheetApp.getUi(); 
+	var response = ui.alert('Новая заявка', 'Появилась новая заявка', ui.ButtonSet.OK);
+
+	if (response == ui.Button.OK)
+	{
+		Logger.log('Пользователь подтвердил новое сообщение');
+	}
+}
+
+function DeleteOrder()
+{
+	_isDeleteOrderInProcess = true;
+	const sheetControlMenu = table.getSheetByName(ControlMenu);
+	const sheetAnswerForm = table.getSheetByName(AnswerForm);
+	const sheetDataBase = table.getSheetByName(DataBase);
+	const dataRangeControlMenu = sheetControlMenu.getDataRange();
+	const dataControlMenu = dataRangeControlMenu.getValues();
+	const selectedVisitors = [];
+  var work=false; 
+  logToSheet("Management Log", `Начало удаления заявок.`);  
+
+	for (let i = START_INDEX_TABLE - 1; i < dataControlMenu.length; i++)
+	{
+		const checkboxStatus = dataControlMenu[i][12]; 
+    if (checkboxStatus == true)
+		{
+      if(!work)
+      {
+        work=!work;
+      }
+
+			selectedVisitors.push(
+			{
+				row: i + 1,
+				date: dataControlMenu[i][1],
+				reason: dataControlMenu[i][2],
+				name: dataControlMenu[i][3],
+				email: dataControlMenu[i][4],
+				comment: dataControlMenu[i][5],
+				passType: dataControlMenu[i][6],
+				passVariant: dataControlMenu[i][7],
+				carBrand: dataControlMenu[i][8],
+				transportNumber: dataControlMenu[i][9],
+				transportType: dataControlMenu[i][10]
+			});
+		}
+	}
+
+  if(work)
+  {
+  	rowOffset = -4;
+	  deleteRowsFromSheet(sheetAnswerForm, selectedVisitors, rowOffset);
+	  rowOffset = 0;
+	  deleteRowsFromSheet(sheetControlMenu, selectedVisitors, rowOffset);
+	  logAction( selectedVisitors);
+	  _isDeleteOrderInProcess = false;
+
+    logToSheet("Management Log", `Завершение удаления заявок.`);
+  }
+  else
+  {
+    logToSheet("Management Log", `Заявки на удаление не были выбраны.`);
+  }
+}
+
+function deleteRowsFromSheet(sheet, selectedVisitors, rowOffset)
+{
+	const dataRange = sheet.getDataRange();
+	const data = dataRange.getValues();
+
+	for (const visitor of selectedVisitors)
+	{
+		sheet.deleteRow(visitor.row + rowOffset);
+		break;
+	}
+}
+
+function isVisitorMatch(rowData, visitor)
+{
+	return rowData.some(cell => cell === visitor.date) && rowData.some(cell => cell === visitor.reason) && rowData.some(cell => cell === visitor.name) && rowData.some(cell => cell === visitor.email) && rowData.some(cell => cell === visitor.comment) && rowData.some(cell => cell === visitor.passType) && rowData.some(cell => cell === visitor.passVariant) && rowData.some(cell => cell === visitor.carBrand) && rowData.some(cell => cell === visitor.transportNumber) && rowData.some(cell => cell === visitor.transportType);
+}
+
+function logAction( selectedVisitors)
+{
+	actionSheet = table.getSheetByName(ActionSheet);
+	var lastRow = actionSheet.getLastRow();
+	var startRow = lastRow;
+	const headers = ['Дата прибытия', 'Причина', 'ФИО', 'Email', 'Комментарий', 'Тип пропуска', 'Вариант пропуска', 'Марка', 'Номер', 'Тип транспорта', 'Действие', 'Ответственный'];
+	
+  if (lastRow === 1)
+	{
+		actionSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    startRow=lastRow+1;
+	}
+	const data = selectedVisitors.map(visitor => [
+		visitor.date,
+		visitor.reason,
+		visitor.name,
+		visitor.email,
+		visitor.comment,
+		visitor.passType,
+		visitor.passVariant,
+		visitor.carBrand,
+		visitor.transportNumber,
+		visitor.transportType, 'Удаление',
+		Session.getActiveUser().getEmail()
+	]);
+
+	actionSheet.getRange(startRow+1, 1, data.length, headers.length).setValues(data);
+}
+
+function checkExpiredApplications()
+{
+	const dataRange = sheetControlMenu.getDataRange();
+	const data = dataRange.getValues();
+	const today = new Date();
+
+  logToSheet("System Log", `Начало проверки истекших заявок.`); 
+
+	for (let i = data.length - 1; i >= START_INDEX_TABLE - 1; i--)
+	{
+		const visitDate = new Date(data[i][1]); 
+		const status = data[i][headersMenuPanel.length - 2]; 
+		if (visitDate < today && status === 'Подтверждено')
+		{
+			const visitor = {
+				date: data[i][1],
+				reason: data[i][2],
+				name: data[i][3],
+				email: data[i][4],
+				comment: data[i][5],
+				passType: data[i][6],
+				passVariant: data[i][7],
+				carBrand: data[i][8],
+				transportNumber: data[i][9],
+				transportType: data[i][10]
+			};
+			logAction( [visitor], 'Срок действия закончился');
+			sheetControlMenu.deleteRow(i + 1);
+		}
+	}
+
+   logToSheet("System Log", `Завершение функции checkExpiredApplications().`);
+}
+
+function setCheckExpiredApplicationsTrigger()
+{
+	const triggers = ScriptApp.getProjectTriggers();
+	const triggerExists = triggers.some(trigger => trigger.getHandlerFunction() === 'checkExpiredApplications');
+
+	if (!triggerExists)
+	{
+		ScriptApp.newTrigger('checkExpiredApplications').timeBased().everyHours(6).create();
+    logToSheet("System Log", `Установка триггера для проверки истекших заявок.`);
+	}
+}
+
+function highlightNewApplication(rowIndex)
+{
+	const range = sheetControlMenu.getRange(rowIndex, 1, 1, headersMenuPanel.length);
+	range.setBackground("#FFFF00");
+}
+
+function highlightPendingApplication(rowIndex)
+{
+	const range = sheetControlMenu.getRange(rowIndex, 1, 1, headersMenuPanel.length);
+	range.setBackground("#FFFF99"); 
+}
+
+function highlightConfirmedApplication(rowIndex)
+{
+	const range = sheetControlMenu.getRange(rowIndex, 1, 1, headersMenuPanel.length);
+	range.setBackground("#00FF00");
+}
+
+function highlightRejectedApplication(rowIndex)
+{
+	const range = sheetControlMenu.getRange(rowIndex, 1, 1, headersMenuPanel.length);
+	range.setBackground("#FF0000"); 
+}
+
+function updateControlMenuStatus(applicationNumber, status)
+{
+	const dataRange = sheetControlMenu.getDataRange();
+	const data = dataRange.getValues();
+
+	for (let i = START_INDEX_TABLE - 1; i < data.length; i++)
+	{
+		var index = data[i][0];
+		if (index == applicationNumber)
+		{
+			sheetControlMenu.getRange(i + 1, headersMenuPanel.length - 1).setValue(status);
+			if (status == 'Подтверждено')
+			{
+				highlightConfirmedApplication(i + 1);
+				showRequestConfirmedMessage();
+			}
+			else if (status == 'Отклонено')
+			{
+				highlightRejectedApplication(i + 1);
+			}
+		}
+	}
+
+  logToSheet("Management Log", `Статус заявки номер ${applicationNumber} обновлен на "${status}" в контрольном меню.`);
+}
+
+function testUpdateDatabaseStatus()
+{
+  updateDatabaseStatus(68, "Подтверждено");  
+}
